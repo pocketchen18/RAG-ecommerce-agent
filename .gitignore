@@ -1,0 +1,45 @@
+# === IDE ===
+.idea/
+.vscode/
+
+# === Python ===
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === 敏感信息 ===
+.env
+cookie.txt
+cookies.json
+
+# === 开发过程文件（Claude Code 工作记录） ===
+CLAUDE.md
+claude-progress.md
+feature_list.json
+session-handoff.md
+clean-state-checklist.md
+evaluator-rubric.md
+quality-document.md
+index.md
+.claude/
+
+# === 爬虫参考文件（含敏感Cookie和大型HTML） ===
+爬虫参考文件/
+
+# === 数据和日志 ===
+data/*.db
+data/chroma_db/
+logs/
+docs/langraph-tutorial_v1.0.pdf
+docs/langraph-tutorial.pdf
+docs/technical-guide.md
+docs/technical-guide.pdf

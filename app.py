@@ -1,0 +1,236 @@
+"""
+Streamlit 前端 — 聊天交互与推荐展示
+
+功能：
+- 用户在聊天框输入需求
+- Agent 返回推荐结果
+- 界面展示推荐卡片、对比表格和反思日志
+"""
+import sys
+from pathlib import Path
+
+# 添加项目根目录到 path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import streamlit as st
+from agents.graph import build_graph, GraphState
+
+
+# ── 页面配置 ──────────────────────────────────────────────
+
+st.set_page_config(
+    page_title="📱 手机导购 Agent",
+    page_icon="📱",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ── 自定义样式 ──────────────────────────────────────────────
+
+st.markdown("""
+<style>
+    .stChatMessage {
+        padding: 1rem;
+    }
+    .step-header {
+        background-color: #f0f2f6;
+        padding: 0.5rem 1rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+    }
+    .check-pass {
+        color: #28a745;
+    }
+    .check-fail {
+        color: #dc3545;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
+# ── 初始化 session state ──────────────────────────────────────
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "graph_results" not in st.session_state:
+    st.session_state.graph_results = []
+
+
+# ── 侧边栏 ──────────────────────────────────────────────
+
+with st.sidebar:
+    st.header("⚙️ 配置")
+
+    max_iterations = st.slider(
+        "最大迭代次数",
+        min_value=1,
+        max_value=5,
+        value=3,
+        help="Critic 未通过时的最大重试次数",
+    )
+
+    st.divider()
+
+    st.header("📖 使用说明")
+    st.markdown("""
+    1. 在聊天框输入你的手机需求
+    2. 等待 Agent 分析和推荐
+    3. 查看推荐结果和对比表格
+    4. 侧边栏展示反思日志
+
+    **示例查询**:
+    - 预算3000，送女朋友，主要拍照好
+    - 打游戏用的，预算不限
+    - 给父母买个手机，2000左右，续航好
+    - 4000元以内小米手机，不要曲面屏
+    """)
+
+    st.divider()
+
+    st.header("🔄 反思日志")
+    if st.session_state.graph_results:
+        latest = st.session_state.graph_results[-1]
+        reflection_log = latest.get("reflection_log", [])
+
+        if reflection_log:
+            for entry in reflection_log:
+                with st.expander(
+                    f"第 {entry['iteration']} 轮 - "
+                    f"{'✅ 通过' if entry['passed'] else '❌ 未通过'} "
+                    f"(评分: {entry['score']}/10)"
+                ):
+                    for check in entry.get("checks", []):
+                        icon = "✅" if check["passed"] else "❌"
+                        st.markdown(f"{icon} **{check['name']}**")
+                        st.caption(check["details"])
+
+                    if not entry["passed"] and entry.get("revision_notes"):
+                        st.markdown("**修改意见:**")
+                        st.info(entry["revision_notes"])
+        else:
+            st.info("暂无反思日志")
+    else:
+        st.info("请先发送查询")
+
+
+# ── 主界面 ──────────────────────────────────────────────
+
+st.title("📱 手机导购 Agent")
+st.markdown("基于 LangGraph 的「生成-批判」双 Agent 电商导购系统")
+
+# 显示历史消息
+for i, message in enumerate(st.session_state.messages):
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+        # 如果是 assistant 消息，显示步骤详情
+        if message["role"] == "assistant" and i < len(st.session_state.graph_results):
+            result = st.session_state.graph_results[i]
+
+            # 显示步骤详情
+            with st.expander("🔍 查看 Agent 思考过程", expanded=False):
+                # Planner 步骤
+                constraints = result.get("constraints")
+                if constraints:
+                    st.markdown("**📝 Planner 解析的约束:**")
+                    cols = st.columns(2)
+                    with cols[0]:
+                        if constraints.get("budget_max"):
+                            st.metric("预算上限", f"{constraints['budget_max']:.0f} 元")
+                        if constraints.get("scenario"):
+                            st.metric("使用场景", constraints["scenario"])
+                    with cols[1]:
+                        if constraints.get("core_needs"):
+                            st.metric("核心需求", ", ".join(constraints["core_needs"]))
+                        if constraints.get("brands"):
+                            st.metric("品牌偏好", ", ".join(constraints["brands"]))
+
+                # Retriever 步骤
+                candidates = result.get("candidates", [])
+                if candidates:
+                    st.markdown(f"**🔍 Retriever 检索的候选:** {len(candidates)} 个商品")
+                    for j, cand in enumerate(candidates[:5]):  # 只显示前5个
+                        st.caption(f"{j+1}. {cand.get('name', 'N/A')} - ¥{cand.get('price', 'N/A')}")
+
+# 聊天输入
+if prompt := st.chat_input("请描述你的手机需求..."):
+    # 添加用户消息
+    st.session_state.messages.append({"role": "user", "content": prompt})
+
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # 运行 Agent
+    with st.chat_message("assistant"):
+        with st.spinner("🤖 Agent 正在思考中..."):
+            try:
+                # 构建图
+                graph = build_graph()
+
+                # 初始状态
+                initial_state = GraphState(
+                    query=prompt,
+                    max_iterations=max_iterations,
+                )
+
+                # 执行图
+                final_state = graph.invoke(initial_state)
+
+                # 提取结果
+                result = {
+                    "final_output": final_state["final_output"],
+                    "reflection_log": final_state["reflection_log"],
+                    "iteration": final_state["iteration"],
+                    "constraints": final_state.get("constraints"),
+                    "candidates": final_state.get("candidates", []),
+                }
+
+                # 保存结果
+                st.session_state.graph_results.append(result)
+
+                # 显示最终输出
+                st.markdown(result["final_output"])
+
+                # 添加到消息历史
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": result["final_output"],
+                })
+
+                # 显示步骤详情
+                with st.expander("🔍 查看 Agent 思考过程", expanded=False):
+                    # Planner 步骤
+                    constraints = result.get("constraints")
+                    if constraints:
+                        st.markdown("**📝 Planner 解析的约束:**")
+                        cols = st.columns(2)
+                        with cols[0]:
+                            if constraints.budget_max:
+                                st.metric("预算上限", f"{constraints.budget_max:.0f} 元")
+                            if constraints.scenario:
+                                st.metric("使用场景", constraints.scenario)
+                        with cols[1]:
+                            if constraints.core_needs:
+                                st.metric("核心需求", ", ".join(constraints.core_needs))
+                            if constraints.brands:
+                                st.metric("品牌偏好", ", ".join(constraints.brands))
+
+                    # Retriever 步骤
+                    candidates = result.get("candidates", [])
+                    if candidates:
+                        st.markdown(f"**🔍 Retriever 检索的候选:** {len(candidates)} 个商品")
+                        for j, cand in enumerate(candidates[:5]):  # 只显示前5个
+                            st.caption(f"{j+1}. {cand.name} - ¥{cand.price}")
+
+            except Exception as e:
+                error_msg = f"❌ 运行出错: {str(e)}"
+                st.error(error_msg)
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": error_msg,
+                })
+                st.session_state.graph_results.append({})
+
+    # 刷新页面以更新侧边栏
+    st.rerun()
