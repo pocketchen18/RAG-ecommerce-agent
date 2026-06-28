@@ -150,7 +150,7 @@ def generator_node(state: GraphState) -> Dict[str, Any]:
     """
     Generator 节点：生成推荐
 
-    输入：query, constraints, candidates
+    输入：query, constraints, candidates, reflection_log
     输出：generator_output
     """
     print("\n" + "="*60)
@@ -162,11 +162,21 @@ def generator_node(state: GraphState) -> Dict[str, Any]:
     constraints = state.constraints
     candidates = state.candidates
 
+    # 获取上一轮的反思意见
+    feedback = None
+    if state.iteration > 0 and state.reflection_log:
+        last_reflection = state.reflection_log[-1]
+        if not last_reflection.get("passed"):
+            feedback = last_reflection.get("revision_notes")
+            print(f"   [接收到反思意见] {feedback[:100]}...")
+
     # 生成推荐
-    generator_output = generator.generate(query, constraints, candidates)
+    generator_output = generator.generate(query, constraints, candidates, feedback=feedback)
 
     print(f"   推荐文本长度: {len(generator_output.recommendation_text)} 字符")
     print(f"   对比表格长度: {len(generator_output.comparison_table)} 字符")
+    if hasattr(generator_output, 'recommended_product_names') and generator_output.recommended_product_names:
+        print(f"   推荐商品数: {len(generator_output.recommended_product_names)}")
 
     return {
         "generator_output": generator_output,

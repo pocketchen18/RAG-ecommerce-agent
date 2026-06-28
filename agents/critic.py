@@ -414,11 +414,24 @@ class CriticAgent:
         Returns:
             CriticOutput: 审查结果，包含 6 项检查和修改意见
         """
+        # 找出实际推荐的商品
+        recommended_candidates = []
+        if hasattr(generator_output, 'recommended_product_names') and generator_output.recommended_product_names:
+            for c in candidates:
+                # 使用部分匹配增强鲁棒性
+                if any(c.name in name or name in c.name for name in generator_output.recommended_product_names):
+                    if c not in recommended_candidates:
+                        recommended_candidates.append(c)
+        
+        # 确保推荐列表不为空，如果是空的可能是解析错误，退化回全部候选
+        if not recommended_candidates:
+            recommended_candidates = candidates
+
         # 执行 6 项规则检查
         checks = [
-            _check_price_constraints(candidates, constraints, generator_output.recommendation_text),
-            _check_negative_constraints(candidates, constraints),
-            _check_diversity(candidates, self.max_same_brand),
+            _check_price_constraints(recommended_candidates, constraints, generator_output.recommendation_text),
+            _check_negative_constraints(recommended_candidates, constraints),
+            _check_diversity(recommended_candidates, self.max_same_brand),
             _check_needs_coverage(constraints, generator_output.recommendation_text),
             _check_accuracy(candidates, generator_output.comparison_table),
             _check_completeness(generator_output.recommendation_text, generator_output.comparison_table),

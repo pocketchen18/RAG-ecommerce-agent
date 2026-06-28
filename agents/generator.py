@@ -41,6 +41,10 @@ class GeneratorOutput(BaseModel):
     comparison_table: str = Field(
         description="Markdown 格式的对比表格，包含机型名、价格、关键参数"
     )
+    recommended_product_names: List[str] = Field(
+        default_factory=list,
+        description="推荐的机型名称列表"
+    )
 
 
 # ── 候选商品序列化 ──────────────────────────────────────────────
@@ -93,9 +97,13 @@ GENERATOR_SYSTEM_PROMPT = """你是一个专业的手机推荐顾问。
 
 ## 输出要求
 
-你需要输出两部分：
+你需要输出三部分：
 
-### 第一部分：推荐文本
+### 第一部分：推荐商品标识
+- 用逗号分隔的你实际推荐的机型名称列表
+- 名称必须与候选列表中的名称完全一致
+
+### 第二部分：推荐文本
 - 开头简要总结用户需求（1-2 句话）
 - 从候选列表中选出最值得推荐的 3-5 款手机
 - 每款推荐都要给出**具体理由**，理由必须绑定到用户提到的具体需求
@@ -104,7 +112,7 @@ GENERATOR_SYSTEM_PROMPT = """你是一个专业的手机推荐顾问。
 - 如果用户有负向约束（如不要曲面屏），说明推荐的商品如何满足了这一要求
 - 最后给出总结性购买建议
 
-### 第二部分：对比表格
+### 第三部分：对比表格
 - 使用 Markdown 表格格式
 - 必须包含列：机型名、价格、屏幕类型、处理器、主摄像头、电池容量
 - 根据用户核心需求，额外增加对应列：
@@ -116,7 +124,10 @@ GENERATOR_SYSTEM_PROMPT = """你是一个专业的手机推荐顾问。
 
 ## 格式
 
-用以下分隔符分隔两部分：
+用以下分隔符分隔三部分：
+
+===RECOMMENDED_PRODUCTS===
+（机型1, 机型2, ...）
 
 ===RECOMMENDATION===
 （推荐文本）
@@ -133,7 +144,7 @@ GENERATOR_HUMAN_PROMPT = """## 用户原始需求
 
 ## 候选商品列表（共 {n_candidates} 款）
 {candidates}
-
+{feedback_section}
 请根据以上信息生成推荐。
 """
 
@@ -180,6 +191,7 @@ class GeneratorAgent:
         query: str,
         constraints: StructuredConstraints,
         candidates: List[RetrieverResult],
+        feedback: Optional[str] = None,
     ) -> GeneratorOutput:
         """
         生成推荐文本和对比表格
@@ -188,6 +200,7 @@ class GeneratorAgent:
             query: 用户原始查询
             constraints: Planner 解析的结构化约束
             candidates: Retriever 返回的候选商品列表
+            feedback: 上一轮 Critic 的审查意见
 
         Returns:
             GeneratorOutput: 包含推荐文本和对比表格
@@ -196,6 +209,10 @@ class GeneratorAgent:
         constraints_text = _format_constraints(constraints)
         candidates_text = _format_candidates(candidates)
 
+        feedback_section = ""
+        if feedback:
+            feedback_section = f"\n## 之前的审查意见（你上一轮的生成存在以下问题，请务必在本次生成中修正）\n{feedback}\n"
+
         try:
             # 调用 LLM
             raw_output = self.chain.invoke({
@@ -203,6 +220,7 @@ class GeneratorAgent:
                 "constraints": constraints_text,
                 "n_candidates": len(candidates),
                 "candidates": candidates_text,
+                "feedback_section": feedback_section,
             })
 
             # 解析输出
@@ -212,41 +230,63 @@ class GeneratorAgent:
             return GeneratorOutput(
                 recommendation_text=f"推荐生成失败: {str(e)}",
                 comparison_table="| 机型 | 价格 |\n|------|------|\n| 暂无数据 | - |",
+                recommended_product_names=[],
             )
 
     def _parse_output(self, raw_output: str) -> GeneratorOutput:
         """解析 LLM 输出为结构化结果"""
+        import re
+        
         recommendation_text = ""
         comparison_table = ""
-
-        # 尝试用分隔符拆分
-        if "===RECOMMENDATION===" in raw_output and "===TABLE===" in raw_output:
-            parts = raw_output.split("===TABLE===")
-            recommendation_text = parts[0].replace("===RECOMMENDATION===", "").strip()
-            comparison_table = parts[1].strip()
-        elif "===TABLE===" in raw_output:
-            parts = raw_output.split("===TABLE===")
-            recommendation_text = parts[0].strip()
-            comparison_table = parts[1].strip()
-        else:
-            # 没有分隔符时，尝试识别 Markdown 表格
-            lines = raw_output.strip().split("\n")
-            table_start = -1
-            for i, line in enumerate(lines):
-                if line.strip().startswith("|") and "---" in line:
-                    table_start = i - 1
-                    break
-
-            if table_start >= 0:
-                recommendation_text = "\n".join(lines[:table_start]).strip()
-                comparison_table = "\n".join(lines[table_start:]).strip()
+        recommended_product_names = []
+        
+        # 提取 RECOMMENDED_PRODUCTS
+        products_match = re.search(r'===RECOMMENDED_PRODUCTS===\n(.*?)\n(?:===|$)', raw_output, re.DOTALL)
+        if products_match:
+            products_str = products_match.group(1).strip()
+            recommended_product_names = [p.strip() for p in products_str.split(',') if p.strip()]
+            
+        # 提取 RECOMMENDATION
+        rec_match = re.search(r'===RECOMMENDATION===\n(.*?)\n(?:===|$)', raw_output, re.DOTALL)
+        if rec_match:
+            recommendation_text = rec_match.group(1).strip()
+            
+        # 提取 TABLE
+        table_match = re.search(r'===TABLE===\n(.*)', raw_output, re.DOTALL)
+        if table_match:
+            comparison_table = table_match.group(1).strip()
+            
+        # 兼容旧格式（如果没有 PRODUCTS 分隔符）
+        if not recommendation_text and not comparison_table:
+            if "===RECOMMENDATION===" in raw_output and "===TABLE===" in raw_output:
+                parts = raw_output.split("===TABLE===")
+                recommendation_text = parts[0].replace("===RECOMMENDATION===", "").strip()
+                comparison_table = parts[1].strip()
+            elif "===TABLE===" in raw_output:
+                parts = raw_output.split("===TABLE===")
+                recommendation_text = parts[0].strip()
+                comparison_table = parts[1].strip()
             else:
-                recommendation_text = raw_output.strip()
-                comparison_table = "| 机型 | 价格 |\n|------|------|\n| 暂无对比数据 | - |"
+                # 没有分隔符时，尝试识别 Markdown 表格
+                lines = raw_output.strip().split("\n")
+                table_start = -1
+                for i, line in enumerate(lines):
+                    if line.strip().startswith("|") and "---" in line:
+                        table_start = i - 1
+                        break
+
+                if table_start >= 0:
+                    recommendation_text = "\n".join(lines[:table_start]).strip()
+                    comparison_table = "\n".join(lines[table_start:]).strip()
+                else:
+                    recommendation_text = raw_output.strip()
+                    comparison_table = "| 机型 | 价格 |\n|------|------|\n| 暂无对比数据 | - |"
 
         return GeneratorOutput(
             recommendation_text=recommendation_text,
             comparison_table=comparison_table,
+            recommended_product_names=recommended_product_names,
         )
 
 
