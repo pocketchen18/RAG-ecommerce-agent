@@ -229,39 +229,39 @@ for i, message in enumerate(st.session_state.messages):
                 result = st.session_state.graph_results[assistant_idx]
 
                 # 历史状态可视化
-            with st.status("🎉 思考完成！", state="complete", expanded=False):
-                for log in result.get("status_logs", []):
-                    st.write(log)
-                st.divider()
+                with st.status("🎉 思考完成！", state="complete", expanded=False):
+                    for log in result.get("status_logs", []):
+                        st.write(log)
+                    st.divider()
 
-                # Planner 步骤
-                constraints = result.get("constraints")
-                if constraints:
-                    st.markdown("**📝 Planner 解析的约束:**")
-                    cols = st.columns(2)
-                    with cols[0]:
-                        budget_max = constraints.get("budget_max") if isinstance(constraints, dict) else getattr(constraints, "budget_max", None)
-                        scenario = constraints.get("scenario") if isinstance(constraints, dict) else getattr(constraints, "scenario", None)
-                        if budget_max:
-                            st.metric("预算上限", f"{budget_max:.0f} 元")
-                        if scenario:
-                            st.metric("使用场景", scenario)
-                    with cols[1]:
-                        core_needs = constraints.get("core_needs") if isinstance(constraints, dict) else getattr(constraints, "core_needs", None)
-                        brands = constraints.get("brands") if isinstance(constraints, dict) else getattr(constraints, "brands", None)
-                        if core_needs:
-                            st.metric("核心需求", ", ".join(core_needs))
-                        if brands:
-                            st.metric("品牌偏好", ", ".join(brands))
+                    # Planner 步骤
+                    constraints = result.get("constraints")
+                    if constraints:
+                        st.markdown("**📝 Planner 解析的约束:**")
+                        cols = st.columns(2)
+                        with cols[0]:
+                            budget_max = constraints.get("budget_max") if isinstance(constraints, dict) else getattr(constraints, "budget_max", None)
+                            scenario = constraints.get("scenario") if isinstance(constraints, dict) else getattr(constraints, "scenario", None)
+                            if budget_max:
+                                st.metric("预算上限", f"{budget_max:.0f} 元")
+                            if scenario:
+                                st.metric("使用场景", scenario)
+                        with cols[1]:
+                            core_needs = constraints.get("core_needs") if isinstance(constraints, dict) else getattr(constraints, "core_needs", None)
+                            brands = constraints.get("brands") if isinstance(constraints, dict) else getattr(constraints, "brands", None)
+                            if core_needs:
+                                st.metric("核心需求", ", ".join(core_needs))
+                            if brands:
+                                st.metric("品牌偏好", ", ".join(brands))
 
-                # Retriever 步骤
-                candidates = result.get("candidates", [])
-                if candidates:
-                    st.markdown(f"**🔍 Retriever 检索的候选:** {len(candidates)} 个商品")
-                    for j, cand in enumerate(candidates[:5]):  # 只显示前5个
-                        name = cand.get("name") if isinstance(cand, dict) else getattr(cand, "name", "N/A")
-                        price = cand.get("price") if isinstance(cand, dict) else getattr(cand, "price", "N/A")
-                        st.caption(f"{j+1}. {name} - ¥{price}")
+                    # Retriever 步骤
+                    candidates = result.get("candidates", [])
+                    if candidates:
+                        st.markdown(f"**🔍 Retriever 检索的候选:** {len(candidates)} 个商品")
+                        for j, cand in enumerate(candidates[:5]):  # 只显示前5个
+                            name = cand.get("name") if isinstance(cand, dict) else getattr(cand, "name", "N/A")
+                            price = cand.get("price") if isinstance(cand, dict) else getattr(cand, "price", "N/A")
+                            st.caption(f"{j+1}. {name} - ¥{price}")
 
         st.markdown(message["content"])
         
