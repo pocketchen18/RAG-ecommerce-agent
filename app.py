@@ -191,11 +191,11 @@ if not st.session_state.llm_key or not st.session_state.emb_key:
 from config import CHROMA_DIR
 import chromadb
 
-# 检查向量数据库是否已初始化
+# 检查向量数据库是否已初始化并有数据
 client = chromadb.PersistentClient(path=str(CHROMA_DIR))
 try:
-    client.get_collection("phone_products")
-    db_ready = True
+    col = client.get_collection("phone_products")
+    db_ready = col.count() > 0
 except ValueError:
     db_ready = False
 
@@ -220,16 +220,20 @@ if not db_ready:
 from agents.graph import build_graph, GraphState
 
 # 显示历史消息
+assistant_idx = 0
 for i, message in enumerate(st.session_state.messages):
     with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
         # 如果是 assistant 消息，显示步骤详情
-        if message["role"] == "assistant" and i < len(st.session_state.graph_results):
-            result = st.session_state.graph_results[i]
+        if message["role"] == "assistant":
+            if assistant_idx < len(st.session_state.graph_results):
+                result = st.session_state.graph_results[assistant_idx]
 
-            # 显示步骤详情
-            with st.expander("🔍 查看 Agent 思考过程", expanded=False):
+                # 历史状态可视化
+            with st.status("🎉 思考完成！", state="complete", expanded=False):
+                for log in result.get("status_logs", []):
+                    st.write(log)
+                st.divider()
+
                 # Planner 步骤
                 constraints = result.get("constraints")
                 if constraints:
@@ -258,6 +262,11 @@ for i, message in enumerate(st.session_state.messages):
                         name = cand.get("name") if isinstance(cand, dict) else getattr(cand, "name", "N/A")
                         price = cand.get("price") if isinstance(cand, dict) else getattr(cand, "price", "N/A")
                         st.caption(f"{j+1}. {name} - ¥{price}")
+
+        st.markdown(message["content"])
+        
+        if message["role"] == "assistant":
+            assistant_idx += 1
 
 # 聊天输入
 if prompt := st.chat_input("请描述你的手机需求..."):
@@ -283,6 +292,7 @@ if prompt := st.chat_input("请描述你的手机需求..."):
             final_state = initial_state.model_dump() if hasattr(initial_state, "model_dump") else (initial_state.dict() if hasattr(initial_state, "dict") else dict(initial_state))
 
             # 状态可视化
+            status_logs = []
             with st.status("🧠 开始解析用户意图...", expanded=True) as status:
                 for output in graph.stream(initial_state):
                     for node_name, node_update in output.items():
@@ -293,56 +303,39 @@ if prompt := st.chat_input("请描述你的手机需求..."):
                         # 根据节点更新状态文案
                         if node_name == "planner":
                             status.update(label="🔍 正在检索候选商品...")
-                            st.write("✅ 意图解析完成")
+                            msg = "✅ 意图解析完成"
+                            st.write(msg)
+                            status_logs.append(msg)
                         elif node_name == "retriever":
                             status.update(label="✍️ 正在生成个性化推荐...")
                             cands = node_update.get("candidates", [])
-                            st.write(f"✅ 检索到 {len(cands)} 款候选商品")
+                            msg = f"✅ 检索到 {len(cands)} 款候选商品"
+                            st.write(msg)
+                            status_logs.append(msg)
                         elif node_name == "generator":
                             status.update(label="🤔 Critic 正在严格审查...")
-                            st.write("✅ 推荐话术与对比表格已生成")
+                            msg = "✅ 推荐话术与对比表格已生成"
+                            st.write(msg)
+                            status_logs.append(msg)
                         elif node_name == "critic":
                             critic_out = node_update.get("critic_output")
                             if critic_out and not critic_out.passed:
                                 status.update(label="🔄 审查未通过，正在反思重试...")
-                                st.write("❌ 审查未通过，打回重做")
+                                msg = "❌ 审查未通过，打回重做"
+                                st.write(msg)
+                                status_logs.append(msg)
                             else:
                                 status.update(label="📋 正在排版最终结果...")
-                                st.write("✅ 审查通过")
+                                msg = "✅ 审查通过"
+                                st.write(msg)
+                                status_logs.append(msg)
                         elif node_name == "presenter":
                             status.update(label="🎉 思考完成！", state="complete", expanded=False)
-
-            # 提取结果
-            result = {
-                "final_output": final_state.get("final_output", ""),
-                "reflection_log": final_state.get("reflection_log", []),
-                "iteration": final_state.get("iteration", 0),
-                "constraints": final_state.get("constraints"),
-                "candidates": final_state.get("candidates", []),
-            }
-
-            # 保存结果
-            st.session_state.graph_results.append(result)
-
-            # 流式输出最终文本 (模拟打字机效果)
-            import time
-            def stream_text(text):
-                for char in text:
-                    yield char
-                    time.sleep(0.01)
-
-            st.write_stream(stream_text(result["final_output"]))
-
-            # 添加到消息历史
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": result["final_output"],
-            })
-
-            # 显示步骤详情
-            with st.expander("🔍 查看 Agent 思考过程", expanded=False):
+                            
+                st.divider()
+                
                 # Planner 步骤
-                constraints = result.get("constraints")
+                constraints = final_state.get("constraints")
                 if constraints:
                     st.markdown("**📝 Planner 解析的约束:**")
                     cols = st.columns(2)
@@ -362,13 +355,41 @@ if prompt := st.chat_input("请描述你的手机需求..."):
                             st.metric("品牌偏好", ", ".join(brands))
 
                 # Retriever 步骤
-                candidates = result.get("candidates", [])
+                candidates = final_state.get("candidates", [])
                 if candidates:
                     st.markdown(f"**🔍 Retriever 检索的候选:** {len(candidates)} 个商品")
                     for j, cand in enumerate(candidates[:5]):  # 只显示前5个
                         name = cand.get("name") if isinstance(cand, dict) else getattr(cand, "name", "N/A")
                         price = cand.get("price") if isinstance(cand, dict) else getattr(cand, "price", "N/A")
                         st.caption(f"{j+1}. {name} - ¥{price}")
+
+            # 提取结果
+            result = {
+                "final_output": final_state.get("final_output", ""),
+                "reflection_log": final_state.get("reflection_log", []),
+                "iteration": final_state.get("iteration", 0),
+                "constraints": final_state.get("constraints"),
+                "candidates": final_state.get("candidates", []),
+                "status_logs": status_logs,
+            }
+
+            # 保存结果
+            st.session_state.graph_results.append(result)
+
+            # 流式输出最终文本 (模拟打字机效果)
+            import time
+            def stream_text(text):
+                for char in text:
+                    yield char
+                    time.sleep(0.01)
+
+            st.write_stream(stream_text(result["final_output"]))
+
+            # 添加到消息历史
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": result["final_output"],
+            })
 
         except Exception as e:
             error_msg = f"❌ 运行出错: {str(e)}"
