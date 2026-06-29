@@ -88,6 +88,10 @@ pip install -r requirements.txt
 
 ### 2. 配置 API Key
 
+**方式一：通过前端 UI 配置（推荐）**
+直接启动应用，在网页左侧侧边栏的「API 配置」中输入你的 DashScope API Key。
+
+**方式二：通过环境变量文件配置**
 复制 `.env.example` 为 `.env`，填入你的 API Key：
 
 ```bash
@@ -101,8 +105,7 @@ EMBEDDING_API_KEY=sk-your-dashscope-key
 LLM_API_KEY=sk-your-dashscope-key
 ```
 
-> 默认使用 DashScope（阿里云）的 `text-embedding-v4` 嵌入模型和 `qwen-plus` 语言模型。
-> 支持任何 OpenAI 兼容 API（DeepSeek、OpenAI 等），修改 `API_BASE` 和 `MODEL` 即可。
+> 默认使用 DashScope（阿里云）的 `text-embedding-v4` 和 `qwen-plus` 模型。支持任何 OpenAI 兼容 API。
 
 ### 3. 初始化数据
 
@@ -165,6 +168,13 @@ streamlit run app.py
 > - `test_should_continue_fail_max_iterations` — 达到最大迭代时强制结束
 > - `test_reflection_log_accumulation` — 反思日志正确累积多轮迭代
 
+### Query 6: 多轮连续对话 ⭐
+```
+用户: 推荐一款拍照好的手机，预算3000
+用户: 太贵了，降到2500以内
+```
+**预期行为**：Agent 具备多轮记忆能力。在第二轮时，Planner 结合上下文，自动继承“拍照”核心需求，并用“2500以内”覆盖旧的预算约束。最终返回 2500 元内的拍照手机，不会丢失上文的核心诉求。
+
 ---
 
 ## 项目结构
@@ -207,7 +217,8 @@ RAG__learn/
 2. **Parent-Child Retrieval** — 小粒度 chunk 用于检索，大粒度 parent 用于 LLM 上下文，解决电商长文本噪声问题
 3. **Critic 反思审查** — 6 项结构化检查（代码 + LLM），不只是 LLM 自审，而是带形式化验证的审查
 4. **条件回退循环** — LangGraph conditional edges 实现「审查不通过 → 打回重做」，最多迭代 N 次
-5. **反思可观测性** — 完整的反思日志，用户可看到 Agent 的自我纠正过程
+5. **多轮对话记忆 (Conversational Memory)** — 动态注入历史上下文，支持用户在多轮对话中连续微调和修改约束条件
+6. **反思可观测性** — 完整的反思日志，用户可看到 Agent 的自我纠正过程
 
 ---
 

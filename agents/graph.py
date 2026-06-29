@@ -39,6 +39,10 @@ class GraphState(BaseModel):
 
     # 输入
     query: str = Field(description="用户原始查询")
+    chat_history: List[Dict[str, str]] = Field(
+        default_factory=list,
+        description="用于存储多轮对话历史"
+    )
 
     # Planner 输出
     constraints: Optional[StructuredConstraints] = Field(
@@ -100,10 +104,11 @@ def planner_node(state: GraphState) -> Dict[str, Any]:
 
     planner = PlannerAgent()
     query = state.query
+    chat_history = state.chat_history
 
     # 解析约束
-    constraints = planner.parse(query)
-    search_constraints = planner.parse_to_search_constraints(query)
+    constraints = planner.parse(query, chat_history=chat_history)
+    search_constraints = planner.parse_to_search_constraints(query, chat_history=chat_history)
 
     print(f"   预算: {constraints.budget_min} - {constraints.budget_max}")
     print(f"   场景: {constraints.scenario}")
@@ -417,6 +422,7 @@ def run_graph(query: str, max_iterations: int = 3) -> Dict[str, Any]:
     # 初始状态
     initial_state = GraphState(
         query=query,
+        chat_history=[],
         max_iterations=max_iterations,
     )
 

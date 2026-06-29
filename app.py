@@ -199,6 +199,7 @@ if prompt := st.chat_input("请描述你的手机需求..."):
                 # 初始状态
                 initial_state = GraphState(
                     query=prompt,
+                    chat_history=st.session_state.messages[:-1],  # 传入历史上下文，排除当前的新 query
                     max_iterations=max_iterations,
                 )
 
