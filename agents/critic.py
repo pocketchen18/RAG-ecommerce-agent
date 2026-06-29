@@ -374,7 +374,8 @@ class CriticAgent:
             max_same_brand: 同品牌最大数量（多样性检查阈值）
             use_llm: 是否使用 LLM 进行辅助审查（默认关闭，使用规则检查）
         """
-        self.model_name = model_name or LLM_MODEL
+        import os
+        self.model_name = model_name or os.getenv("LLM_MODEL", LLM_MODEL)
         self.temperature = temperature
         self.max_same_brand = max_same_brand
         self.use_llm = use_llm

@@ -62,21 +62,64 @@ if "graph_results" not in st.session_state:
 with st.sidebar:
     st.header("🔑 API 配置")
     
-    # 初始化 session state 用于存储 keys
-    if "llm_key" not in st.session_state:
-        st.session_state.llm_key = os.getenv("LLM_API_KEY", "")
-    if "emb_key" not in st.session_state:
-        st.session_state.emb_key = os.getenv("EMBEDDING_API_KEY", "")
-        
-    llm_key = st.text_input("LLM API Key", type="password", value=st.session_state.llm_key)
-    emb_key = st.text_input("Embedding API Key", type="password", value=st.session_state.emb_key)
+    # 读取环境变量，如果不存在则使用 config.py 里的默认值
+    from config import LLM_API_BASE, LLM_API_KEY, LLM_MODEL, EMBEDDING_API_BASE, EMBEDDING_API_KEY, EMBEDDING_MODEL
     
-    if llm_key:
-        os.environ["LLM_API_KEY"] = llm_key
-        st.session_state.llm_key = llm_key
-    if emb_key:
-        os.environ["EMBEDDING_API_KEY"] = emb_key
-        st.session_state.emb_key = emb_key
+    # 初始化 session state
+    if "llm_key" not in st.session_state:
+        st.session_state.llm_key = os.getenv("LLM_API_KEY", LLM_API_KEY)
+    if "llm_base" not in st.session_state:
+        st.session_state.llm_base = os.getenv("LLM_API_BASE", LLM_API_BASE)
+    if "llm_model" not in st.session_state:
+        st.session_state.llm_model = os.getenv("LLM_MODEL", LLM_MODEL)
+
+    if "emb_key" not in st.session_state:
+        st.session_state.emb_key = os.getenv("EMBEDDING_API_KEY", EMBEDDING_API_KEY)
+    if "emb_base" not in st.session_state:
+        st.session_state.emb_base = os.getenv("EMBEDDING_API_BASE", EMBEDDING_API_BASE)
+    if "emb_model" not in st.session_state:
+        st.session_state.emb_model = os.getenv("EMBEDDING_MODEL", EMBEDDING_MODEL)
+
+    with st.expander("🛠️ LLM 配置", expanded=True):
+        llm_key = st.text_input("LLM API Key", type="password", value=st.session_state.llm_key)
+        llm_base = st.text_input("LLM Base URL", value=st.session_state.llm_base)
+        llm_model = st.text_input("LLM Model", value=st.session_state.llm_model)
+
+    with st.expander("🛠️ Embedding 配置", expanded=False):
+        emb_key = st.text_input("Embedding API Key", type="password", value=st.session_state.emb_key)
+        emb_base = st.text_input("Embedding Base URL", value=st.session_state.emb_base)
+        emb_model = st.text_input("Embedding Model", value=st.session_state.emb_model)
+    
+    # 实时同步到环境变量，保证运行期代码读取最新配置
+    os.environ["LLM_API_KEY"] = llm_key
+    os.environ["LLM_API_BASE"] = llm_base
+    os.environ["LLM_MODEL"] = llm_model
+    os.environ["EMBEDDING_API_KEY"] = emb_key
+    os.environ["EMBEDDING_API_BASE"] = emb_base
+    os.environ["EMBEDDING_MODEL"] = emb_model
+    
+    st.session_state.llm_key = llm_key
+    st.session_state.llm_base = llm_base
+    st.session_state.llm_model = llm_model
+    st.session_state.emb_key = emb_key
+    st.session_state.emb_base = emb_base
+    st.session_state.emb_model = emb_model
+
+    if st.button("💾 保存配置"):
+        env_content = f"""# ── 嵌入模型 API（用于 RAG 向量检索） ────────────────────
+EMBEDDING_API_BASE={emb_base}
+EMBEDDING_API_KEY={emb_key}
+EMBEDDING_MODEL={emb_model}
+
+# ── 语言模型 API（用于 Agent 推理、生成、审查） ──────────
+LLM_API_BASE={llm_base}
+LLM_API_KEY={llm_key}
+LLM_MODEL={llm_model}
+"""
+        env_path = Path(__file__).resolve().parent / ".env"
+        with open(env_path, "w", encoding="utf-8") as f:
+            f.write(env_content)
+        st.success(f"✅ 成功保存至 .env 文件，下次启动将自动加载！")
         
     st.divider()
 
