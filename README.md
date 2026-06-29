@@ -199,10 +199,11 @@ RAG__learn/
 │   ├── planner.py            # Planner Agent（用户意图解析）
 │   ├── generator.py          # Generator Agent（推荐生成）
 │   ├── critic.py             # Critic Agent（6 项结构化反思审查）
+│   ├── tools.py              # 联网工具集 (如实时查价工具)
 │   └── graph.py              # LangGraph 状态图组装
 └── tests/
     ├── test_planner.py       # Planner 测试（5 项）
-    ├── test_generator.py     # Generator 测试（6 项）
+    ├── test_generator.py     # Generator 测试（7 项）
     ├── test_retriever.py     # Retriever 测试（6 项）
     ├── test_critic.py        # Critic 测试（14 项）
     ├── test_graph.py         # Graph 测试（12 项）
@@ -226,7 +227,7 @@ RAG__learn/
 ## 运行测试
 
 ```bash
-# 全部测试（48 项）
+# 全部测试（50 项）
 python -m pytest tests/ -v
 
 # 单模块测试

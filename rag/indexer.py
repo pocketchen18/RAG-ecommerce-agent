@@ -8,10 +8,21 @@
    - phone_products: 商品详情的 child chunks
    - phone_reviews: 用户评价
 """
+import sys
 import json
 import os
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
+
+# 强制 sys.stdout 和 sys.stderr 使用 UTF-8 编码，防止在 Windows GBK 终端下打印 emoji 崩溃
+if sys.platform.startswith("win"):
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 import chromadb
 from chromadb.api.types import EmbeddingFunction, Documents, Embeddings
