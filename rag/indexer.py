@@ -61,12 +61,22 @@ class DashScopeEmbedding(EmbeddingFunction):
         return all_embeddings
 
 
-# 全局 embedding 函数实例
-_embedding_fn = DashScopeEmbedding(
-    api_base=EMBEDDING_API_BASE,
-    api_key=EMBEDDING_API_KEY,
-    model=EMBEDDING_MODEL,
-)
+def get_embedding_fn():
+    """获取全局 embedding 函数实例"""
+    import os
+    from config import EMBEDDING_API_BASE, EMBEDDING_API_KEY, EMBEDDING_MODEL
+    api_key = os.getenv("EMBEDDING_API_KEY", EMBEDDING_API_KEY)
+    if not api_key:
+        # 如果没有配置 API Key，返回一个虚拟的 embedding 函数以防止 import 报错，
+        # 或者在实际调用时再抛出异常。
+        # 为了兼容性，如果没有配置，这里先暂时用空串（会在实际调用时报错）。
+        api_key = "dummy"
+        
+    return DashScopeEmbedding(
+        api_base=os.getenv("EMBEDDING_API_BASE", EMBEDDING_API_BASE),
+        api_key=api_key,
+        model=os.getenv("EMBEDDING_MODEL", EMBEDDING_MODEL),
+    )
 
 # ── 路径配置 ──────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -289,12 +299,12 @@ def index_to_chromadb(
     products_col = client.create_collection(
         name="phone_products",
         metadata={"description": "手机商品详情的 child chunks，用于语义检索"},
-        embedding_function=_embedding_fn,
+        embedding_function=get_embedding_fn(),
     )
     reviews_col = client.create_collection(
         name="phone_reviews",
         metadata={"description": "手机用户评价，用于语义检索"},
-        embedding_function=_embedding_fn,
+        embedding_function=get_embedding_fn(),
     )
 
     # ── 写入商品数据 ──────────────────────────────────
@@ -408,8 +418,8 @@ def main():
     print("\n🔍 验证入库结果...")
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
 
-    products_col = client.get_collection("phone_products", embedding_function=_embedding_fn)
-    reviews_col = client.get_collection("phone_reviews", embedding_function=_embedding_fn)
+    products_col = client.get_collection("phone_products", embedding_function=get_embedding_fn())
+    reviews_col = client.get_collection("phone_reviews", embedding_function=get_embedding_fn())
 
     p_count = products_col.count()
     r_count = reviews_col.count()

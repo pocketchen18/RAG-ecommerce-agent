@@ -26,7 +26,7 @@ from config import (
 )
 
 # 复用 indexer 中的 embedding 函数
-from rag.indexer import DashScopeEmbedding
+from rag.indexer import get_embedding_fn
 
 
 # ── 数据结构 ──────────────────────────────────────────────
@@ -196,11 +196,7 @@ class HybridRetriever:
 
         # 初始化 embedding 函数
         if embedding_fn is None:
-            self.embedding_fn = DashScopeEmbedding(
-                api_base=EMBEDDING_API_BASE,
-                api_key=EMBEDDING_API_KEY,
-                model=EMBEDDING_MODEL,
-            )
+            self.embedding_fn = get_embedding_fn()
         else:
             self.embedding_fn = embedding_fn
 

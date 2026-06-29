@@ -156,12 +156,17 @@ class PlannerAgent:
         self.model_name = model_name or LLM_MODEL
         self.temperature = temperature
 
+        import os
+        api_key = os.getenv("LLM_API_KEY", LLM_API_KEY)
+        if not api_key:
+            raise ValueError("未配置 LLM_API_KEY")
+
         # 初始化 LLM
         self.llm = ChatOpenAI(
             model=self.model_name,
             temperature=self.temperature,
-            api_key=LLM_API_KEY,
-            base_url=LLM_API_BASE,
+            api_key=api_key,
+            base_url=os.getenv("LLM_API_BASE", LLM_API_BASE),
         )
 
         # 初始化输出解析器

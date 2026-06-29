@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import streamlit as st
-from agents.graph import build_graph, GraphState
+import os
 
 
 # ── 页面配置 ──────────────────────────────────────────────
@@ -60,7 +60,27 @@ if "graph_results" not in st.session_state:
 # ── 侧边栏 ──────────────────────────────────────────────
 
 with st.sidebar:
-    st.header("⚙️ 配置")
+    st.header("🔑 API 配置")
+    
+    # 初始化 session state 用于存储 keys
+    if "llm_key" not in st.session_state:
+        st.session_state.llm_key = os.getenv("LLM_API_KEY", "")
+    if "emb_key" not in st.session_state:
+        st.session_state.emb_key = os.getenv("EMBEDDING_API_KEY", "")
+        
+    llm_key = st.text_input("LLM API Key", type="password", value=st.session_state.llm_key)
+    emb_key = st.text_input("Embedding API Key", type="password", value=st.session_state.emb_key)
+    
+    if llm_key:
+        os.environ["LLM_API_KEY"] = llm_key
+        st.session_state.llm_key = llm_key
+    if emb_key:
+        os.environ["EMBEDDING_API_KEY"] = emb_key
+        st.session_state.emb_key = emb_key
+        
+    st.divider()
+
+    st.header("⚙️ 参数配置")
 
     max_iterations = st.slider(
         "最大迭代次数",
@@ -118,6 +138,14 @@ with st.sidebar:
 
 st.title("📱 手机导购 Agent")
 st.markdown("基于 LangGraph 的「生成-批判」双 Agent 电商导购系统")
+
+# 检查 API Key
+if not st.session_state.llm_key or not st.session_state.emb_key:
+    st.warning("⚠️ 请先在左侧配置 LLM 和 Embedding 的 API Key。")
+    st.stop()
+
+# 延迟导入，确保在读取了最新的 os.environ 后再进行初始化
+from agents.graph import build_graph, GraphState
 
 # 显示历史消息
 for i, message in enumerate(st.session_state.messages):
