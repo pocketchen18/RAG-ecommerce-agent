@@ -166,7 +166,8 @@ class GeneratorAgent:
             model_name: 模型名称，默认使用 config 中的 LLM_MODEL
             temperature: 温度参数，0.3 允许适度创造性
         """
-        self.model_name = model_name or LLM_MODEL
+        import os
+        self.model_name = model_name or os.getenv("LLM_MODEL", LLM_MODEL)
         self.temperature = temperature
 
         import os

@@ -62,21 +62,64 @@ if "graph_results" not in st.session_state:
 with st.sidebar:
     st.header("🔑 API 配置")
     
-    # 初始化 session state 用于存储 keys
-    if "llm_key" not in st.session_state:
-        st.session_state.llm_key = os.getenv("LLM_API_KEY", "")
-    if "emb_key" not in st.session_state:
-        st.session_state.emb_key = os.getenv("EMBEDDING_API_KEY", "")
-        
-    llm_key = st.text_input("LLM API Key", type="password", value=st.session_state.llm_key)
-    emb_key = st.text_input("Embedding API Key", type="password", value=st.session_state.emb_key)
+    # 读取环境变量，如果不存在则使用 config.py 里的默认值
+    from config import LLM_API_BASE, LLM_API_KEY, LLM_MODEL, EMBEDDING_API_BASE, EMBEDDING_API_KEY, EMBEDDING_MODEL
     
-    if llm_key:
-        os.environ["LLM_API_KEY"] = llm_key
-        st.session_state.llm_key = llm_key
-    if emb_key:
-        os.environ["EMBEDDING_API_KEY"] = emb_key
-        st.session_state.emb_key = emb_key
+    # 初始化 session state
+    if "llm_key" not in st.session_state:
+        st.session_state.llm_key = os.getenv("LLM_API_KEY", LLM_API_KEY)
+    if "llm_base" not in st.session_state:
+        st.session_state.llm_base = os.getenv("LLM_API_BASE", LLM_API_BASE)
+    if "llm_model" not in st.session_state:
+        st.session_state.llm_model = os.getenv("LLM_MODEL", LLM_MODEL)
+
+    if "emb_key" not in st.session_state:
+        st.session_state.emb_key = os.getenv("EMBEDDING_API_KEY", EMBEDDING_API_KEY)
+    if "emb_base" not in st.session_state:
+        st.session_state.emb_base = os.getenv("EMBEDDING_API_BASE", EMBEDDING_API_BASE)
+    if "emb_model" not in st.session_state:
+        st.session_state.emb_model = os.getenv("EMBEDDING_MODEL", EMBEDDING_MODEL)
+
+    with st.expander("🛠️ LLM 配置", expanded=True):
+        llm_key = st.text_input("LLM API Key", type="password", value=st.session_state.llm_key)
+        llm_base = st.text_input("LLM Base URL", value=st.session_state.llm_base)
+        llm_model = st.text_input("LLM Model", value=st.session_state.llm_model)
+
+    with st.expander("🛠️ Embedding 配置", expanded=False):
+        emb_key = st.text_input("Embedding API Key", type="password", value=st.session_state.emb_key)
+        emb_base = st.text_input("Embedding Base URL", value=st.session_state.emb_base)
+        emb_model = st.text_input("Embedding Model", value=st.session_state.emb_model)
+    
+    # 实时同步到环境变量，保证运行期代码读取最新配置
+    os.environ["LLM_API_KEY"] = llm_key
+    os.environ["LLM_API_BASE"] = llm_base
+    os.environ["LLM_MODEL"] = llm_model
+    os.environ["EMBEDDING_API_KEY"] = emb_key
+    os.environ["EMBEDDING_API_BASE"] = emb_base
+    os.environ["EMBEDDING_MODEL"] = emb_model
+    
+    st.session_state.llm_key = llm_key
+    st.session_state.llm_base = llm_base
+    st.session_state.llm_model = llm_model
+    st.session_state.emb_key = emb_key
+    st.session_state.emb_base = emb_base
+    st.session_state.emb_model = emb_model
+
+    if st.button("💾 保存配置"):
+        env_content = f"""# ── 嵌入模型 API（用于 RAG 向量检索） ────────────────────
+EMBEDDING_API_BASE={emb_base}
+EMBEDDING_API_KEY={emb_key}
+EMBEDDING_MODEL={emb_model}
+
+# ── 语言模型 API（用于 Agent 推理、生成、审查） ──────────
+LLM_API_BASE={llm_base}
+LLM_API_KEY={llm_key}
+LLM_MODEL={llm_model}
+"""
+        env_path = Path(__file__).resolve().parent / ".env"
+        with open(env_path, "w", encoding="utf-8") as f:
+            f.write(env_content)
+        st.success(f"✅ 成功保存至 .env 文件，下次启动将自动加载！")
         
     st.divider()
 
@@ -145,41 +188,85 @@ if not st.session_state.llm_key or not st.session_state.emb_key:
     st.stop()
 
 # 延迟导入，确保在读取了最新的 os.environ 后再进行初始化
+from config import CHROMA_DIR
+import chromadb
+
+# 检查向量数据库是否已初始化并有数据
+client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+try:
+    col = client.get_collection("phone_products")
+    db_ready = col.count() > 0
+except ValueError:
+    db_ready = False
+
+if not db_ready:
+    st.warning("⚠️ 检测到本地向量数据库尚未初始化（缺少商品数据）。")
+    if st.button("🚀 立即初始化数据库（约需 1 分钟）"):
+        with st.spinner("正在调用大模型生成向量数据并入库，请耐心等待..."):
+            from rag.indexer import main as index_main
+            try:
+                success = index_main()
+                if success is not False:
+                    st.success("✅ 数据库初始化成功！")
+                    import time
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("❌ 初始化失败，请检查数据文件是否存在。")
+            except Exception as e:
+                st.error(f"❌ 初始化异常: {str(e)}")
+    st.stop()
+
 from agents.graph import build_graph, GraphState
 
 # 显示历史消息
+assistant_idx = 0
 for i, message in enumerate(st.session_state.messages):
     with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
         # 如果是 assistant 消息，显示步骤详情
-        if message["role"] == "assistant" and i < len(st.session_state.graph_results):
-            result = st.session_state.graph_results[i]
+        if message["role"] == "assistant":
+            if assistant_idx < len(st.session_state.graph_results):
+                result = st.session_state.graph_results[assistant_idx]
 
-            # 显示步骤详情
-            with st.expander("🔍 查看 Agent 思考过程", expanded=False):
+                # 历史状态可视化
+            with st.status("🎉 思考完成！", state="complete", expanded=False):
+                for log in result.get("status_logs", []):
+                    st.write(log)
+                st.divider()
+
                 # Planner 步骤
                 constraints = result.get("constraints")
                 if constraints:
                     st.markdown("**📝 Planner 解析的约束:**")
                     cols = st.columns(2)
                     with cols[0]:
-                        if constraints.get("budget_max"):
-                            st.metric("预算上限", f"{constraints['budget_max']:.0f} 元")
-                        if constraints.get("scenario"):
-                            st.metric("使用场景", constraints["scenario"])
+                        budget_max = constraints.get("budget_max") if isinstance(constraints, dict) else getattr(constraints, "budget_max", None)
+                        scenario = constraints.get("scenario") if isinstance(constraints, dict) else getattr(constraints, "scenario", None)
+                        if budget_max:
+                            st.metric("预算上限", f"{budget_max:.0f} 元")
+                        if scenario:
+                            st.metric("使用场景", scenario)
                     with cols[1]:
-                        if constraints.get("core_needs"):
-                            st.metric("核心需求", ", ".join(constraints["core_needs"]))
-                        if constraints.get("brands"):
-                            st.metric("品牌偏好", ", ".join(constraints["brands"]))
+                        core_needs = constraints.get("core_needs") if isinstance(constraints, dict) else getattr(constraints, "core_needs", None)
+                        brands = constraints.get("brands") if isinstance(constraints, dict) else getattr(constraints, "brands", None)
+                        if core_needs:
+                            st.metric("核心需求", ", ".join(core_needs))
+                        if brands:
+                            st.metric("品牌偏好", ", ".join(brands))
 
                 # Retriever 步骤
                 candidates = result.get("candidates", [])
                 if candidates:
                     st.markdown(f"**🔍 Retriever 检索的候选:** {len(candidates)} 个商品")
                     for j, cand in enumerate(candidates[:5]):  # 只显示前5个
-                        st.caption(f"{j+1}. {cand.get('name', 'N/A')} - ¥{cand.get('price', 'N/A')}")
+                        name = cand.get("name") if isinstance(cand, dict) else getattr(cand, "name", "N/A")
+                        price = cand.get("price") if isinstance(cand, dict) else getattr(cand, "price", "N/A")
+                        st.caption(f"{j+1}. {name} - ¥{price}")
+
+        st.markdown(message["content"])
+        
+        if message["role"] == "assistant":
+            assistant_idx += 1
 
 # 聊天输入
 if prompt := st.chat_input("请描述你的手机需求..."):
@@ -191,75 +278,127 @@ if prompt := st.chat_input("请描述你的手机需求..."):
 
     # 运行 Agent
     with st.chat_message("assistant"):
-        with st.spinner("🤖 Agent 正在思考中..."):
-            try:
-                # 构建图
-                graph = build_graph()
+        try:
+            # 构建图
+            graph = build_graph()
 
-                # 初始状态
-                initial_state = GraphState(
-                    query=prompt,
-                    chat_history=st.session_state.messages[:-1],  # 传入历史上下文，排除当前的新 query
-                    max_iterations=max_iterations,
-                )
+            # 初始状态
+            initial_state = GraphState(
+                query=prompt,
+                chat_history=st.session_state.messages[:-1],  # 传入历史上下文，排除当前的新 query
+                max_iterations=max_iterations,
+            )
 
-                # 执行图
-                final_state = graph.invoke(initial_state)
+            final_state = initial_state.model_dump() if hasattr(initial_state, "model_dump") else (initial_state.dict() if hasattr(initial_state, "dict") else dict(initial_state))
 
-                # 提取结果
-                result = {
-                    "final_output": final_state["final_output"],
-                    "reflection_log": final_state["reflection_log"],
-                    "iteration": final_state["iteration"],
-                    "constraints": final_state.get("constraints"),
-                    "candidates": final_state.get("candidates", []),
-                }
+            # 状态可视化
+            status_logs = []
+            with st.status("🧠 开始解析用户意图...", expanded=True) as status:
+                for output in graph.stream(initial_state):
+                    for node_name, node_update in output.items():
+                        # 更新当前状态
+                        if isinstance(node_update, dict):
+                            final_state.update(node_update)
+                        
+                        # 根据节点更新状态文案
+                        if node_name == "planner":
+                            status.update(label="🔍 正在检索候选商品...")
+                            msg = "✅ 意图解析完成"
+                            st.write(msg)
+                            status_logs.append(msg)
+                        elif node_name == "retriever":
+                            status.update(label="✍️ 正在生成个性化推荐...")
+                            cands = node_update.get("candidates", [])
+                            msg = f"✅ 检索到 {len(cands)} 款候选商品"
+                            st.write(msg)
+                            status_logs.append(msg)
+                        elif node_name == "generator":
+                            status.update(label="🤔 Critic 正在严格审查...")
+                            msg = "✅ 推荐话术与对比表格已生成"
+                            st.write(msg)
+                            status_logs.append(msg)
+                        elif node_name == "critic":
+                            critic_out = node_update.get("critic_output")
+                            if critic_out and not critic_out.passed:
+                                status.update(label="🔄 审查未通过，正在反思重试...")
+                                msg = "❌ 审查未通过，打回重做"
+                                st.write(msg)
+                                status_logs.append(msg)
+                            else:
+                                status.update(label="📋 正在排版最终结果...")
+                                msg = "✅ 审查通过"
+                                st.write(msg)
+                                status_logs.append(msg)
+                        elif node_name == "presenter":
+                            status.update(label="🎉 思考完成！", state="complete", expanded=False)
+                            
+                st.divider()
+                
+                # Planner 步骤
+                constraints = final_state.get("constraints")
+                if constraints:
+                    st.markdown("**📝 Planner 解析的约束:**")
+                    cols = st.columns(2)
+                    with cols[0]:
+                        budget_max = constraints.get("budget_max") if isinstance(constraints, dict) else getattr(constraints, "budget_max", None)
+                        scenario = constraints.get("scenario") if isinstance(constraints, dict) else getattr(constraints, "scenario", None)
+                        if budget_max:
+                            st.metric("预算上限", f"{budget_max:.0f} 元")
+                        if scenario:
+                            st.metric("使用场景", scenario)
+                    with cols[1]:
+                        core_needs = constraints.get("core_needs") if isinstance(constraints, dict) else getattr(constraints, "core_needs", None)
+                        brands = constraints.get("brands") if isinstance(constraints, dict) else getattr(constraints, "brands", None)
+                        if core_needs:
+                            st.metric("核心需求", ", ".join(core_needs))
+                        if brands:
+                            st.metric("品牌偏好", ", ".join(brands))
 
-                # 保存结果
-                st.session_state.graph_results.append(result)
+                # Retriever 步骤
+                candidates = final_state.get("candidates", [])
+                if candidates:
+                    st.markdown(f"**🔍 Retriever 检索的候选:** {len(candidates)} 个商品")
+                    for j, cand in enumerate(candidates[:5]):  # 只显示前5个
+                        name = cand.get("name") if isinstance(cand, dict) else getattr(cand, "name", "N/A")
+                        price = cand.get("price") if isinstance(cand, dict) else getattr(cand, "price", "N/A")
+                        st.caption(f"{j+1}. {name} - ¥{price}")
 
-                # 显示最终输出
-                st.markdown(result["final_output"])
+            # 提取结果
+            result = {
+                "final_output": final_state.get("final_output", ""),
+                "reflection_log": final_state.get("reflection_log", []),
+                "iteration": final_state.get("iteration", 0),
+                "constraints": final_state.get("constraints"),
+                "candidates": final_state.get("candidates", []),
+                "status_logs": status_logs,
+            }
 
-                # 添加到消息历史
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": result["final_output"],
-                })
+            # 保存结果
+            st.session_state.graph_results.append(result)
 
-                # 显示步骤详情
-                with st.expander("🔍 查看 Agent 思考过程", expanded=False):
-                    # Planner 步骤
-                    constraints = result.get("constraints")
-                    if constraints:
-                        st.markdown("**📝 Planner 解析的约束:**")
-                        cols = st.columns(2)
-                        with cols[0]:
-                            if constraints.budget_max:
-                                st.metric("预算上限", f"{constraints.budget_max:.0f} 元")
-                            if constraints.scenario:
-                                st.metric("使用场景", constraints.scenario)
-                        with cols[1]:
-                            if constraints.core_needs:
-                                st.metric("核心需求", ", ".join(constraints.core_needs))
-                            if constraints.brands:
-                                st.metric("品牌偏好", ", ".join(constraints.brands))
+            # 流式输出最终文本 (模拟打字机效果)
+            import time
+            def stream_text(text):
+                for char in text:
+                    yield char
+                    time.sleep(0.01)
 
-                    # Retriever 步骤
-                    candidates = result.get("candidates", [])
-                    if candidates:
-                        st.markdown(f"**🔍 Retriever 检索的候选:** {len(candidates)} 个商品")
-                        for j, cand in enumerate(candidates[:5]):  # 只显示前5个
-                            st.caption(f"{j+1}. {cand.name} - ¥{cand.price}")
+            st.write_stream(stream_text(result["final_output"]))
 
-            except Exception as e:
-                error_msg = f"❌ 运行出错: {str(e)}"
-                st.error(error_msg)
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": error_msg,
-                })
-                st.session_state.graph_results.append({})
+            # 添加到消息历史
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": result["final_output"],
+            })
+
+        except Exception as e:
+            error_msg = f"❌ 运行出错: {str(e)}"
+            st.error(error_msg)
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": error_msg,
+            })
+            st.session_state.graph_results.append({})
 
     # 刷新页面以更新侧边栏
     st.rerun()
