@@ -145,6 +145,35 @@ if not st.session_state.llm_key or not st.session_state.emb_key:
     st.stop()
 
 # 延迟导入，确保在读取了最新的 os.environ 后再进行初始化
+from config import CHROMA_DIR
+import chromadb
+
+# 检查向量数据库是否已初始化
+client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+try:
+    client.get_collection("phone_products")
+    db_ready = True
+except ValueError:
+    db_ready = False
+
+if not db_ready:
+    st.warning("⚠️ 检测到本地向量数据库尚未初始化（缺少商品数据）。")
+    if st.button("🚀 立即初始化数据库（约需 1 分钟）"):
+        with st.spinner("正在调用大模型生成向量数据并入库，请耐心等待..."):
+            from rag.indexer import main as index_main
+            try:
+                success = index_main()
+                if success is not False:
+                    st.success("✅ 数据库初始化成功！")
+                    import time
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("❌ 初始化失败，请检查数据文件是否存在。")
+            except Exception as e:
+                st.error(f"❌ 初始化异常: {str(e)}")
+    st.stop()
+
 from agents.graph import build_graph, GraphState
 
 # 显示历史消息
@@ -164,22 +193,28 @@ for i, message in enumerate(st.session_state.messages):
                     st.markdown("**📝 Planner 解析的约束:**")
                     cols = st.columns(2)
                     with cols[0]:
-                        if constraints.get("budget_max"):
-                            st.metric("预算上限", f"{constraints['budget_max']:.0f} 元")
-                        if constraints.get("scenario"):
-                            st.metric("使用场景", constraints["scenario"])
+                        budget_max = constraints.get("budget_max") if isinstance(constraints, dict) else getattr(constraints, "budget_max", None)
+                        scenario = constraints.get("scenario") if isinstance(constraints, dict) else getattr(constraints, "scenario", None)
+                        if budget_max:
+                            st.metric("预算上限", f"{budget_max:.0f} 元")
+                        if scenario:
+                            st.metric("使用场景", scenario)
                     with cols[1]:
-                        if constraints.get("core_needs"):
-                            st.metric("核心需求", ", ".join(constraints["core_needs"]))
-                        if constraints.get("brands"):
-                            st.metric("品牌偏好", ", ".join(constraints["brands"]))
+                        core_needs = constraints.get("core_needs") if isinstance(constraints, dict) else getattr(constraints, "core_needs", None)
+                        brands = constraints.get("brands") if isinstance(constraints, dict) else getattr(constraints, "brands", None)
+                        if core_needs:
+                            st.metric("核心需求", ", ".join(core_needs))
+                        if brands:
+                            st.metric("品牌偏好", ", ".join(brands))
 
                 # Retriever 步骤
                 candidates = result.get("candidates", [])
                 if candidates:
                     st.markdown(f"**🔍 Retriever 检索的候选:** {len(candidates)} 个商品")
                     for j, cand in enumerate(candidates[:5]):  # 只显示前5个
-                        st.caption(f"{j+1}. {cand.get('name', 'N/A')} - ¥{cand.get('price', 'N/A')}")
+                        name = cand.get("name") if isinstance(cand, dict) else getattr(cand, "name", "N/A")
+                        price = cand.get("price") if isinstance(cand, dict) else getattr(cand, "price", "N/A")
+                        st.caption(f"{j+1}. {name} - ¥{price}")
 
 # 聊天输入
 if prompt := st.chat_input("请描述你的手机需求..."):
@@ -202,7 +237,7 @@ if prompt := st.chat_input("请描述你的手机需求..."):
                 max_iterations=max_iterations,
             )
 
-            final_state = initial_state.dict() if hasattr(initial_state, "dict") else dict(initial_state)
+            final_state = initial_state.model_dump() if hasattr(initial_state, "model_dump") else (initial_state.dict() if hasattr(initial_state, "dict") else dict(initial_state))
 
             # 状态可视化
             with st.status("🧠 开始解析用户意图...", expanded=True) as status:
@@ -269,22 +304,28 @@ if prompt := st.chat_input("请描述你的手机需求..."):
                     st.markdown("**📝 Planner 解析的约束:**")
                     cols = st.columns(2)
                     with cols[0]:
-                        if constraints.budget_max:
-                            st.metric("预算上限", f"{constraints.budget_max:.0f} 元")
-                        if constraints.scenario:
-                            st.metric("使用场景", constraints.scenario)
+                        budget_max = constraints.get("budget_max") if isinstance(constraints, dict) else getattr(constraints, "budget_max", None)
+                        scenario = constraints.get("scenario") if isinstance(constraints, dict) else getattr(constraints, "scenario", None)
+                        if budget_max:
+                            st.metric("预算上限", f"{budget_max:.0f} 元")
+                        if scenario:
+                            st.metric("使用场景", scenario)
                     with cols[1]:
-                        if constraints.core_needs:
-                            st.metric("核心需求", ", ".join(constraints.core_needs))
-                        if constraints.brands:
-                            st.metric("品牌偏好", ", ".join(constraints.brands))
+                        core_needs = constraints.get("core_needs") if isinstance(constraints, dict) else getattr(constraints, "core_needs", None)
+                        brands = constraints.get("brands") if isinstance(constraints, dict) else getattr(constraints, "brands", None)
+                        if core_needs:
+                            st.metric("核心需求", ", ".join(core_needs))
+                        if brands:
+                            st.metric("品牌偏好", ", ".join(brands))
 
                 # Retriever 步骤
                 candidates = result.get("candidates", [])
                 if candidates:
                     st.markdown(f"**🔍 Retriever 检索的候选:** {len(candidates)} 个商品")
                     for j, cand in enumerate(candidates[:5]):  # 只显示前5个
-                        st.caption(f"{j+1}. {cand.name} - ¥{cand.price}")
+                        name = cand.get("name") if isinstance(cand, dict) else getattr(cand, "name", "N/A")
+                        price = cand.get("price") if isinstance(cand, dict) else getattr(cand, "price", "N/A")
+                        st.caption(f"{j+1}. {name} - ¥{price}")
 
         except Exception as e:
             error_msg = f"❌ 运行出错: {str(e)}"
