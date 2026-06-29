@@ -234,6 +234,27 @@ def test_comparison_table_structure():
     print("✅ 测试 6 通过: 对比表格结构正确")
 
 
+def test_tool_calling_integration():
+    """测试 7: Generator 成功触发 search_realtime_price 工具调用"""
+    print("\n" + "=" * 60)
+    print("测试 7: Generator 工具调用集成测试")
+    print("=" * 60)
+
+    from unittest.mock import patch
+    generator = GeneratorAgent()
+    query = "请联网查一下小米14的最新价格，并告诉我"
+    constraints = make_mock_constraints()
+    candidates = make_mock_candidates()
+
+    with patch("agents.tools.DuckDuckGoSearchRun.invoke") as mock_search:
+        mock_search.return_value = "小米 14 最新售价约为 2999 元"
+        output = generator.generate(query, constraints, candidates)
+        
+        assert mock_search.called, "应该调用了联网查价工具"
+        print("✅ 成功触发联网搜索工具！")
+        assert len(output.recommendation_text) > 0
+
+
 # ── 主入口 ──────────────────────────────────────────────
 
 def main():
@@ -248,6 +269,7 @@ def main():
     results.append(("Generator 生成", test_generate_with_mock()))
     results.append(("需求绑定", test_recommendation_mentions_needs()))
     results.append(("表格结构", test_comparison_table_structure()))
+    results.append(("工具调用集成", test_tool_calling_integration()))
 
     print("\n" + "=" * 60)
     passed = sum(1 for _, ok in results if ok)

@@ -199,10 +199,11 @@ RAG__learn/
 │   ├── planner.py            # Planner Agent（用户意图解析）
 │   ├── generator.py          # Generator Agent（推荐生成）
 │   ├── critic.py             # Critic Agent（6 项结构化反思审查）
+│   ├── tools.py              # 联网工具集 (如实时查价工具)
 │   └── graph.py              # LangGraph 状态图组装
 └── tests/
     ├── test_planner.py       # Planner 测试（5 项）
-    ├── test_generator.py     # Generator 测试（6 项）
+    ├── test_generator.py     # Generator 测试（7 项）
     ├── test_retriever.py     # Retriever 测试（6 项）
     ├── test_critic.py        # Critic 测试（14 项）
     ├── test_graph.py         # Graph 测试（12 项）
@@ -220,13 +221,14 @@ RAG__learn/
 5. **多轮对话记忆 (Conversational Memory)** — 动态注入历史上下文，支持用户在多轮对话中连续微调和修改约束条件
 6. **状态可视化与流式输出** — 前端使用 `st.status` 实时展示 LangGraph 节点流转，并配合流式打字机效果输出最终推荐结果，大幅降低等待焦虑
 7. **反思可观测性** — 完整的反思日志，用户可看到 Agent 的自我纠正过程
+8. **动态联网查价 (Tool Calling)** — 引入基于 DuckDuckGo 搜索的 `search_realtime_price` 工具，在生成时自动对入选手机价格进行联网核验，打通静态 RAG 价格时效性瓶颈
 
 ---
 
 ## 运行测试
 
 ```bash
-# 全部测试（48 项）
+# 全部测试（50 项）
 python -m pytest tests/ -v
 
 # 单模块测试

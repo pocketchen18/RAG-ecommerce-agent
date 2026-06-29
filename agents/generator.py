@@ -95,6 +95,12 @@ def _format_constraints(constraints: StructuredConstraints) -> str:
 GENERATOR_SYSTEM_PROMPT = """你是一个专业的手机推荐顾问。
 你的任务是根据用户需求和候选商品列表，生成个性化推荐。
 
+## 实时价格联网查询工具 (Tool Calling)
+你拥有一个 `search_realtime_price` 工具，可以联网搜索某款手机当前的最新实时价格。
+1. 如果候选商品列表中某个商品的价格看起来偏离了当前的实际价格，或者你想确认该商品的最新降价活动，你应当使用该工具查询。
+2. 如果你查询到了最新价格，你应该在“第二部分：推荐文本”的推荐理由中特别说明（例如：*经联网查询，当前最新参考价约为 1899 元*）。
+3. 在“第三部分：对比表格”的价格列中，优先使用你查询到的最新价格，并用星号注明（如：`1899*`）。并在表格下方补充说明：`* 注：带 * 号价格为联网查询的当前实时参考价`。
+
 ## 输出要求
 
 你需要输出三部分：
@@ -189,7 +195,7 @@ class GeneratorAgent:
             ("human", GENERATOR_HUMAN_PROMPT),
         ])
 
-        # 构建 chain
+        # 构建 chain (保留作备用)
         self.chain = self.prompt | self.llm | StrOutputParser()
 
     def generate(
@@ -200,7 +206,7 @@ class GeneratorAgent:
         feedback: Optional[str] = None,
     ) -> GeneratorOutput:
         """
-        生成推荐文本和对比表格
+        生成推荐文本和对比表格，期间如果需要会调用 search_realtime_price 工具联网查价
 
         Args:
             query: 用户原始查询
@@ -211,6 +217,15 @@ class GeneratorAgent:
         Returns:
             GeneratorOutput: 包含推荐文本和对比表格
         """
+        from agents.tools import search_realtime_price
+        from langchain_core.messages import ToolMessage
+
+        # 尝试绑定工具
+        try:
+            llm_with_tools = self.llm.bind_tools([search_realtime_price])
+        except Exception:
+            llm_with_tools = self.llm
+
         # 格式化输入
         constraints_text = _format_constraints(constraints)
         candidates_text = _format_candidates(candidates)
@@ -219,15 +234,36 @@ class GeneratorAgent:
         if feedback:
             feedback_section = f"\n## 之前的审查意见（你上一轮的生成存在以下问题，请务必在本次生成中修正）\n{feedback}\n"
 
+        messages = self.prompt.format_messages(
+            query=query,
+            constraints=constraints_text,
+            n_candidates=len(candidates),
+            candidates=candidates_text,
+            feedback_section=feedback_section,
+        )
+
         try:
-            # 调用 LLM
-            raw_output = self.chain.invoke({
-                "query": query,
-                "constraints": constraints_text,
-                "n_candidates": len(candidates),
-                "candidates": candidates_text,
-                "feedback_section": feedback_section,
-            })
+            raw_output = ""
+            for _ in range(3):
+                res = llm_with_tools.invoke(messages)
+                if not getattr(res, "tool_calls", None):
+                    raw_output = res.content
+                    break
+                
+                messages.append(res)
+                for tool_call in res.tool_calls:
+                    if tool_call["name"] == "search_realtime_price":
+                        sku_name = tool_call["args"].get("sku_name")
+                        tool_res = search_realtime_price.invoke({"sku_name": sku_name})
+                        messages.append(ToolMessage(
+                            content=str(tool_res),
+                            tool_call_id=tool_call["id"],
+                            name=tool_call["name"]
+                        ))
+            else:
+                # 超过循环次数限制，强制用不带工具的 invocation 生成最终响应
+                res = self.llm.invoke(messages)
+                raw_output = res.content
 
             # 解析输出
             return self._parse_output(raw_output)

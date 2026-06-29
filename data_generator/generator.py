@@ -1,4 +1,6 @@
-"""数据生成器 - 生成手机商品与评价数据"""
+# -*- coding: utf-8 -*-
+"""数据生成器 - 生成真实手机商品与评价数据"""
+import sys
 import json
 import random
 import uuid
@@ -6,80 +8,22 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List
 
+# 强制 sys.stdout 和 sys.stderr 使用 UTF-8 编码，防止在 Windows GBK 终端下打印 emoji 崩溃
+if sys.platform.startswith("win"):
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 from .schemas import PhoneProduct, Review
+from .real_phones import REAL_PHONES
 
 
 # ============================================================
-# 品牌与机型数据
-# ============================================================
-
-BRANDS = {
-    "华为": {
-        "series": ["Mate", "Pura", "nova"],
-        "processors": ["麒麟9000S", "麒麟9010", "骁龙8 Gen2"],
-        "price_range": (2999, 8999),
-        "tags": ["商务", "拍照", "旗舰", "鸿蒙"]
-    },
-    "小米": {
-        "series": ["小米数字", "Redmi", "POCO"],
-        "processors": ["骁龙8 Gen3", "骁龙8 Gen2", "天玑9200+"],
-        "price_range": (1299, 5999),
-        "tags": ["性价比", "旗舰", "游戏", "快充"]
-    },
-    "OPPO": {
-        "series": ["Find", "Reno", "K"],
-        "processors": ["骁龙8 Gen3", "天玑9200+", "骁龙7 Gen3"],
-        "price_range": (1999, 6999),
-        "tags": ["拍照", "快充", "颜值", "轻薄"]
-    },
-    "vivo": {
-        "series": ["X", "S", "iQOO"],
-        "processors": ["天玑9300", "骁龙8 Gen3", "天玑8200"],
-        "price_range": (1999, 6999),
-        "tags": ["拍照", "HiFi", "游戏", "轻薄"]
-    },
-    "苹果": {
-        "series": ["iPhone"],
-        "processors": ["A17 Pro", "A16 Bionic", "A15 Bionic"],
-        "price_range": (5999, 12999),
-        "tags": ["iOS", "流畅", "生态", "旗舰"]
-    },
-    "三星": {
-        "series": ["Galaxy S", "Galaxy Z", "Galaxy A"],
-        "processors": ["骁龙8 Gen3", "Exynos 2400", "骁龙7 Gen1"],
-        "price_range": (1999, 12999),
-        "tags": ["屏幕", "折叠屏", "拍照", "商务"]
-    },
-    "荣耀": {
-        "series": ["Magic", "数字", "X"],
-        "processors": ["骁龙8 Gen3", "天玑9200+", "骁龙6 Gen1"],
-        "price_range": (1299, 5999),
-        "tags": ["AI", "拍照", "轻薄", "性价比"]
-    },
-    "一加": {
-        "series": ["一加数字", "一加Ace"],
-        "processors": ["骁龙8 Gen3", "天玑9200+"],
-        "price_range": (2299, 5499),
-        "tags": ["性能", "流畅", "快充", "旗舰"]
-    }
-}
-
-SCREEN_TYPES = ["直屏", "曲面屏", "折叠屏"]
-CHARGING_SPECS = ["33W快充", "67W快充", "80W快充", "100W快充", "120W快充", "150W快充", "240W快充"]
-CAMERA_CONFIGS = [
-    {"main": "4800万", "ultra": "1200万", "tele": None},
-    {"main": "5000万", "ultra": "800万", "tele": None},
-    {"main": "5000万", "ultra": "1200万", "tele": "1200万"},
-    {"main": "6400万", "ultra": "800万", "tele": None},
-    {"main": "1亿", "ultra": "800万", "tele": "200万"},
-    {"main": "2亿", "ultra": "1200万", "tele": "1000万"},
-    {"main": "4800万", "ultra": "4800万", "tele": "1200万"},
-    {"main": "5000万", "ultra": "5000万", "tele": "5000万"},
-]
-
-
-# ============================================================
-# 评价模板数据
+# 评价模板数据 (用于生成拟真的用户评论)
 # ============================================================
 
 REVIEW_TEMPLATES = {
@@ -132,22 +76,6 @@ def generate_sku_id(brand: str, series: str, index: int) -> str:
     return f"{brand_short}-{series}-{index:03d}"
 
 
-def generate_phone_name(brand: str, series: str, is_pro: bool = False) -> str:
-    """生成手机名称"""
-    suffix = " Pro" if is_pro else ""
-    if series == "iPhone":
-        models = ["15", "15 Plus", "15 Pro", "15 Pro Max", "16", "16 Plus", "16 Pro", "16 Pro Max"]
-        return f"iPhone {random.choice(models)}"
-    elif series == "Galaxy S":
-        models = ["24", "24+", "24 Ultra"]
-        return f"Samsung Galaxy S{random.choice(models)}"
-    elif series == "Galaxy Z":
-        return f"Samsung Galaxy Z {'Flip' if random.random() > 0.5 else 'Fold'} 5"
-    else:
-        num = random.randint(10, 99)
-        return f"{brand} {series} {num}{suffix}"
-
-
 def generate_review(date_range: tuple, features: List[str]) -> Review:
     """生成单条评价"""
     sentiment = random.choices(["positive", "neutral", "negative"], weights=[0.6, 0.3, 0.1])[0]
@@ -171,75 +99,105 @@ def generate_review(date_range: tuple, features: List[str]) -> Review:
     )
 
 
-def generate_single_phone(brand: str, brand_config: dict, index: int) -> PhoneProduct:
-    """生成单个手机商品"""
-    series = random.choice(brand_config["series"])
-    is_pro = random.random() > 0.6
-
-    # 价格
-    price_min, price_max = brand_config["price_range"]
-    price = round(random.uniform(price_min, price_max) / 100) * 100
-
-    # 屏幕配置
-    screen_type = random.choices(SCREEN_TYPES, weights=[0.5, 0.4, 0.1])[0]
-    if screen_type == "折叠屏":
-        price = max(price, 6999)  # 折叠屏价格下限
-
-    # 摄像头配置
-    camera_config = random.choice(CAMERA_CONFIGS)
-
-    # 生成商品
+def generate_configured_phone(base_phone: dict, config_idx: int, global_index: int) -> PhoneProduct:
+    """基于真实手机模板，生成不同内存/存储配置的 SKU"""
+    brand = base_phone["brand"]
+    series = base_phone["series"]
+    model_name = base_phone["model_name"]
+    base_price = base_phone["base_price"]
+    
+    # 针对苹果与安卓分别生成不同存储阶梯价格
+    if brand == "苹果":
+        if base_price >= 9999.0: # Pro Max
+            storage_options = [256, 512, 1024]
+            price_offsets = [0.0, 1500.0, 3000.0]
+            ram = 8
+        elif "Pro" in model_name: # Pro
+            storage_options = [128, 256, 512]
+            price_offsets = [0.0, 1000.0, 2000.0]
+            ram = 8
+        else: # Standard
+            storage_options = [128, 256, 512]
+            price_offsets = [0.0, 1000.0, 2000.0]
+            ram = 6 if "15" in model_name else 8
+            
+        storage = storage_options[config_idx]
+        price = base_price + price_offsets[config_idx]
+    else:
+        # 安卓存储规则
+        if base_price < 2000.0:
+            ram_options = [8, 12, 16]
+            storage_options = [128, 256, 512]
+            price_offsets = [0.0, 300.0, 600.0]
+        elif base_price < 5000.0:
+            ram_options = [12, 16, 16]
+            storage_options = [256, 512, 1024]
+            price_offsets = [0.0, 400.0, 900.0]
+        else:
+            ram_options = [12, 16, 16]
+            storage_options = [256, 512, 1024]
+            price_offsets = [0.0, 500.0, 1200.0]
+            
+        ram = ram_options[config_idx]
+        storage = storage_options[config_idx]
+        price = base_price + price_offsets[config_idx]
+        
+    storage_str = f"{storage}GB" if storage < 1024 else "1TB"
+    name = f"{brand} {model_name} ({ram}GB+{storage_str})"
+    
+    # 原价（有概率比现价略高）
+    original_price = price + random.choice([0.0, 200.0, 300.0, 500.0]) if random.random() > 0.5 else None
+    
     phone = PhoneProduct(
-        sku_id=generate_sku_id(brand, series, index),
-        name=generate_phone_name(brand, series, is_pro),
+        sku_id=generate_sku_id(brand, series, global_index),
+        name=name,
         brand=brand,
         series=series,
         price=price,
-        original_price=price + random.choice([0, 200, 300, 500]) if random.random() > 0.5 else None,
-        screen_type=screen_type,
-        screen_size=round(random.uniform(6.1, 7.2), 2),
-        screen_resolution=random.choice(["2400x1080", "2772x1240", "3200x1440", "2844x1260"]),
-        refresh_rate=random.choice([60, 90, 120, 144]),
-        processor=random.choice(brand_config["processors"]),
-        ram=random.choice([8, 12, 16]),
-        storage=random.choice([128, 256, 512, 1024]),
-        camera_main=camera_config["main"],
-        camera_ultra_wide=camera_config["ultra"],
-        camera_telephoto=camera_config["tele"],
-        camera_front=f"{random.choice([12, 16, 20, 32])}00万",
-        battery=random.choice([4000, 4500, 4800, 5000, 5500, 6000]),
-        charging=random.choice(CHARGING_SPECS),
-        weight=round(random.uniform(170, 240), 1),
-        os="iOS" if brand == "苹果" else ("HarmonyOS" if brand == "华为" else "Android"),
+        original_price=original_price,
+        screen_type=base_phone["screen_type"],
+        screen_size=base_phone["screen_size"],
+        screen_resolution=base_phone["screen_resolution"],
+        refresh_rate=base_phone["refresh_rate"],
+        processor=base_phone["processor"],
+        ram=ram,
+        storage=storage,
+        camera_main=base_phone["camera_main"],
+        camera_ultra_wide=base_phone["camera_ultra_wide"],
+        camera_telephoto=base_phone["camera_telephoto"],
+        camera_front=base_phone["camera_front"],
+        battery=base_phone["battery"],
+        charging=base_phone["charging"],
+        weight=base_phone["weight"],
+        os=base_phone["os"],
         reviews=[],
-        tags=random.sample(brand_config["tags"], k=min(3, len(brand_config["tags"]))),
-        description=f"{brand}旗舰手机，搭载{random.choice(brand_config['processors'])}处理器，{camera_config['main']}像素主摄",
-        release_date=f"2024-{random.randint(1,12):02d}-{random.randint(1,28):02d}"
+        tags=base_phone["tags"],
+        description=base_phone["description"],
+        release_date=base_phone["release_date"]
     )
-
+    
     # 生成评价
-    num_reviews = random.randint(5, 10)
+    num_reviews = random.randint(6, 12)
     review_features = random.sample(FEATURES, k=min(3, len(FEATURES)))
-    phone.reviews = [generate_review((2024, 2025), review_features) for _ in range(num_reviews)]
-
+    phone.reviews = [generate_review((2023, 2025), review_features) for _ in range(num_reviews)]
+    
     return phone
 
 
 def generate_phones(count: int = 120) -> List[PhoneProduct]:
-    """生成多款手机数据"""
+    """根据真实手机模板列表生成多款手机 SKU"""
     phones = []
-    brands_list = list(BRANDS.keys())
-
-    # 确保每个品牌至少有 10 款
-    phones_per_brand = count // len(brands_list)
-    remainder = count % len(brands_list)
-
-    for i, (brand, config) in enumerate(BRANDS.items()):
-        brand_count = phones_per_brand + (1 if i < remainder else 0)
-        for j in range(brand_count):
-            phone = generate_single_phone(brand, config, j + 1)
+    
+    # 循环遍历 REAL_PHONES，对每款机型生成不同配置的 SKU
+    for config_idx in range(3): # 对每款机型支持生成至多 3 种存储配置
+        for base_phone in REAL_PHONES:
+            if len(phones) >= count:
+                break
+            global_idx = len(phones) + 1
+            phone = generate_configured_phone(base_phone, config_idx, global_idx)
             phones.append(phone)
-
+            
+    # 随机打乱以增加数据真实度和分布性
     random.shuffle(phones)
     return phones
 
